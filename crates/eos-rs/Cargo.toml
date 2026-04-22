@@ -1,0 +1,17 @@
+[package]
+name = "eos-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Safe(ish) Rust wrapper over the Epic Online Services (EOS) C SDK."
+homepage = "https://dev.epicgames.com/services"
+documentation = "https://docs.rs/eos-rs"
+readme = "README.md"
+keywords = ["eos", "epic", "online-services", "sdk"]
+categories = ["api-bindings", "games"]
+rust-version = "1.70"
+
+[dependencies]
+eos-sys = "0.1.0"
+thiserror = "2"
+
