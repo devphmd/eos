@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/eos-sys",
+  "crates/eos-rs",
+]
+
+[patch.crates-io]
+eos-sys = { path = "crates/eos-sys" }
+

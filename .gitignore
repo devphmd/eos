@@ -1,0 +1,26 @@
+# Rust / Cargo
+/target/
+**/*.rlib
+**/*.rmeta
+
+# Windows build artifacts
+**/*.pdb
+**/*.obj
+**/*.exe
+**/*.dll
+**/*.lib
+**/*.exp
+**/*.ilk
+
+# IDE
+.vscode/
+.idea/
+
+# OS junk
+Thumbs.db
+Desktop.ini
+
+# Epic Online Services SDK (vendor drop)
+# Keep the SDK out of git/public artifacts by default.
+/SDK/
+/Samples/
