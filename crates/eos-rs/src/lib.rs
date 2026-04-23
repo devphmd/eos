@@ -1,3 +1,99 @@
+//! # eos-rs
+//!
+//! Safe(ish) Rust wrappers around the Epic Online Services (EOS) C SDK.
+//!
+//! This crate is designed as an ergonomic layer over [`eos_sys`], while still
+//! allowing escape hatches to raw handles for APIs that are not yet wrapped.
+//!
+//! ## Chapter 1: Installation
+//!
+//! Add dependency:
+//!
+//! ```toml
+//! [dependencies]
+//! eos-rs = "0.1"
+//! ```
+//!
+//! Provide EOS SDK location when building:
+//!
+//! - `EOS_SDK_DIR=/path/to/EOS-SDK`
+//!
+//! Expected layout inside `EOS_SDK_DIR`:
+//!
+//! - `Include/`
+//! - `Lib/`
+//!
+//! On Windows, ship `EOSSDK-Win64-Shipping.dll` with your app.
+//!
+//! ## Chapter 2: SDK Lifecycle
+//!
+//! EOS has a global lifecycle:
+//!
+//! 1. [`initialize`]
+//! 2. Create a [`Platform`]
+//! 3. Call [`Platform::tick`] regularly
+//! 4. Drop `Platform`
+//! 5. [`shutdown`]
+//!
+//! ## Chapter 3: Quick Start
+//!
+//! ```no_run
+//! use eos_rs::{initialize, shutdown, InitializeOptions, Platform, PlatformOptions};
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     initialize(InitializeOptions {
+//!         product_name: "my-game".to_string(),
+//!         product_version: "0.1.0".to_string(),
+//!     })?;
+//!
+//!     let platform = Platform::create(PlatformOptions {
+//!         product_id: "product-id".to_string(),
+//!         sandbox_id: "sandbox-id".to_string(),
+//!         deployment_id: "deployment-id".to_string(),
+//!         client_id: "client-id".to_string(),
+//!         client_secret: "client-secret".to_string(),
+//!         is_server: false,
+//!         encryption_key: None,
+//!         override_country_code: None,
+//!         override_locale_code: None,
+//!     })?;
+//!
+//!     // Call once per frame/tick in your game loop.
+//!     platform.tick();
+//!
+//!     drop(platform);
+//!     shutdown()?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Chapter 4: Interfaces and Raw Escape Hatch
+//!
+//! [`Platform`] exposes typed accessors for EOS interfaces (`auth()`, `connect()`,
+//! `lobby()`, `p2p()`, and more). Each wrapper provides `raw_handle()` so you can
+//! call any function from [`sys`] directly when needed.
+//!
+//! ## Chapter 5: Callback Model
+//!
+//! EOS async APIs are callback-based. `eos-rs` wraps selected callbacks with Rust
+//! closures and owns callback context allocations until EOS invokes them.
+//!
+//! ## Chapter 6: Owned EOS Objects
+//!
+//! EOS returns many heap/handle values that require `*_Release`. This crate defines
+//! RAII wrappers for those objects; dropping the wrapper calls the matching release
+//! API automatically.
+//!
+//! ## Chapter 7: Safety Notes
+//!
+//! This crate significantly improves safety over raw FFI, but it is not fully safe:
+//!
+//! - EOS threading requirements still apply.
+//! - EOS callback contracts still apply.
+//! - `raw_handle()` access can bypass invariants.
+//!
+//! Prefer wrapped methods and RAII types where available.
+//!
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::ptr::{null, null_mut, NonNull};

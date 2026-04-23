@@ -2,6 +2,8 @@
 
 Low-level (unsafe) Rust FFI bindings to the **Epic Online Services (EOS) C SDK**.
 
+Repository: <https://github.com/devphmd/eos>
+
 ## Requirements
 
 This crate **does not** bundle the EOS SDK. You must provide it and point the build to it:

@@ -5,6 +5,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Raw FFI bindings to the Epic Online Services (EOS) C SDK."
 homepage = "https://dev.epicgames.com/services"
+repository = "https://github.com/devphmd/eos"
 documentation = "https://docs.rs/eos-sys"
 readme = "README.md"
 keywords = ["eos", "epic", "online-services", "ffi"]
