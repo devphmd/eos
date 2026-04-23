@@ -94,7 +94,7 @@
 //!
 //! Prefer wrapped methods and RAII types where available.
 //!
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::ptr::{null, null_mut, NonNull};
 use std::sync::OnceLock;
@@ -119,6 +119,139 @@ fn ok(res: sys::EOS_EResult) -> Result<()> {
     } else {
         Err(Error::Eos(res))
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoginStatus {
+    NotLoggedIn,
+    UsingLocalProfile,
+    LoggedIn,
+    Other(sys::EOS_ELoginStatus),
+}
+
+impl LoginStatus {
+    fn from_raw(status: sys::EOS_ELoginStatus) -> Self {
+        match status {
+            x if x == sys::EOS_ELoginStatus_EOS_LS_NotLoggedIn => Self::NotLoggedIn,
+            x if x == sys::EOS_ELoginStatus_EOS_LS_UsingLocalProfile => Self::UsingLocalProfile,
+            x if x == sys::EOS_ELoginStatus_EOS_LS_LoggedIn => Self::LoggedIn,
+            x => Self::Other(x),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NatType {
+    Unknown,
+    Open,
+    Moderate,
+    Strict,
+    Other(sys::EOS_ENATType),
+}
+
+impl NatType {
+    fn from_raw(v: sys::EOS_ENATType) -> Self {
+        match v {
+            x if x == sys::EOS_ENATType_EOS_NAT_Unknown => Self::Unknown,
+            x if x == sys::EOS_ENATType_EOS_NAT_Open => Self::Open,
+            x if x == sys::EOS_ENATType_EOS_NAT_Moderate => Self::Moderate,
+            x if x == sys::EOS_ENATType_EOS_NAT_Strict => Self::Strict,
+            x => Self::Other(x),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelayControl {
+    NoRelays,
+    AllowRelays,
+    ForceRelays,
+    Other(sys::EOS_ERelayControl),
+}
+
+impl RelayControl {
+    fn from_raw(v: sys::EOS_ERelayControl) -> Self {
+        match v {
+            x if x == sys::EOS_ERelayControl_EOS_RC_NoRelays => Self::NoRelays,
+            x if x == sys::EOS_ERelayControl_EOS_RC_AllowRelays => Self::AllowRelays,
+            x if x == sys::EOS_ERelayControl_EOS_RC_ForceRelays => Self::ForceRelays,
+            x => Self::Other(x),
+        }
+    }
+
+    fn to_raw(self) -> sys::EOS_ERelayControl {
+        match self {
+            Self::NoRelays => sys::EOS_ERelayControl_EOS_RC_NoRelays,
+            Self::AllowRelays => sys::EOS_ERelayControl_EOS_RC_AllowRelays,
+            Self::ForceRelays => sys::EOS_ERelayControl_EOS_RC_ForceRelays,
+            Self::Other(v) => v,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PacketReliability {
+    UnreliableUnordered,
+    ReliableUnordered,
+    ReliableOrdered,
+}
+
+impl PacketReliability {
+    fn to_raw(self) -> sys::EOS_EPacketReliability {
+        match self {
+            Self::UnreliableUnordered => sys::EOS_EPacketReliability_EOS_PR_UnreliableUnordered,
+            Self::ReliableUnordered => sys::EOS_EPacketReliability_EOS_PR_ReliableUnordered,
+            Self::ReliableOrdered => sys::EOS_EPacketReliability_EOS_PR_ReliableOrdered,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PacketQueueInfo {
+    pub incoming_max_size_bytes: u64,
+    pub incoming_current_size_bytes: u64,
+    pub incoming_current_packet_count: u64,
+    pub outgoing_max_size_bytes: u64,
+    pub outgoing_current_size_bytes: u64,
+    pub outgoing_current_packet_count: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReceivedPacket {
+    pub peer_id: ProductUserId,
+    pub socket_name: String,
+    pub channel: u8,
+    pub data: Vec<u8>,
+}
+
+pub fn result_to_string(result: sys::EOS_EResult) -> &'static str {
+    // SAFETY: EOS guarantees this pointer is non-null, static, and valid UTF-8-ish C string.
+    let ptr = unsafe { sys::EOS_EResult_ToString(result) };
+    if ptr.is_null() {
+        return "EOS_Unknown";
+    }
+    unsafe { CStr::from_ptr(ptr) }.to_str().unwrap_or("EOS_InvalidUtf8")
+}
+
+fn make_socket_id(socket_name: &str) -> Result<sys::EOS_P2P_SocketId> {
+    let c = CString::new(socket_name)?;
+    let bytes = c.as_bytes_with_nul();
+    if bytes.len() > sys::EOS_P2P_SOCKETID_SOCKETNAME_SIZE as usize {
+        return Err(Error::Null);
+    }
+    let mut out = sys::EOS_P2P_SocketId {
+        ApiVersion: sys::EOS_P2P_SOCKETID_API_LATEST as i32,
+        SocketName: [0; sys::EOS_P2P_SOCKETID_SOCKETNAME_SIZE as usize],
+    };
+    for (idx, b) in bytes.iter().copied().enumerate() {
+        out.SocketName[idx] = b as i8;
+    }
+    Ok(out)
+}
+
+fn socket_name_from_raw(socket: &sys::EOS_P2P_SocketId) -> String {
+    let ptr = socket.SocketName.as_ptr();
+    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
 }
 
 static INITIALIZED: OnceLock<()> = OnceLock::new();
@@ -168,6 +301,116 @@ pub struct EpicAccountId(sys::EOS_EpicAccountId);
 
 #[derive(Clone, Copy, Debug)]
 pub struct ProductUserId(sys::EOS_ProductUserId);
+
+#[derive(Clone, Copy, Debug)]
+pub struct ContinuanceToken(sys::EOS_ContinuanceToken);
+
+impl ContinuanceToken {
+    pub fn raw(self) -> sys::EOS_ContinuanceToken {
+        self.0
+    }
+
+    pub fn from_login_callback(info: &sys::EOS_Connect_LoginCallbackInfo) -> Option<Self> {
+        if info.ContinuanceToken.is_null() {
+            None
+        } else {
+            Some(Self(info.ContinuanceToken))
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CreateLobbyParams {
+    pub max_lobby_members: u32,
+    pub permission_level: sys::EOS_ELobbyPermissionLevel,
+    pub presence_enabled: bool,
+    pub allow_invites: bool,
+    pub bucket_id: String,
+    pub disable_host_migration: bool,
+    pub enable_rtc_room: bool,
+    pub enable_join_by_id: bool,
+    pub rejoin_after_kick_requires_invite: bool,
+}
+
+impl Default for CreateLobbyParams {
+    fn default() -> Self {
+        Self {
+            max_lobby_members: 8,
+            permission_level: sys::EOS_ELobbyPermissionLevel_EOS_LPL_PUBLICADVERTISED,
+            presence_enabled: true,
+            allow_invites: true,
+            bucket_id: "default".to_string(),
+            disable_host_migration: false,
+            enable_rtc_room: false,
+            enable_join_by_id: false,
+            rejoin_after_kick_requires_invite: false,
+        }
+    }
+}
+
+impl EpicAccountId {
+    pub fn from_string(s: &str) -> Result<Self> {
+        let s = CString::new(s)?;
+        let raw = unsafe { sys::EOS_EpicAccountId_FromString(s.as_ptr()) };
+        let id = Self(raw);
+        if id.is_valid() {
+            Ok(id)
+        } else {
+            Err(Error::Null)
+        }
+    }
+
+    pub fn to_string(self) -> Result<String> {
+        let mut buf = vec![0i8; (sys::EOS_EPICACCOUNTID_MAX_LENGTH + 1) as usize];
+        let mut len = buf.len() as i32;
+        let res = unsafe { sys::EOS_EpicAccountId_ToString(self.0, buf.as_mut_ptr(), &mut len) };
+        ok(res)?;
+        let s = unsafe { CStr::from_ptr(buf.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        Ok(s)
+    }
+
+    pub fn is_valid(self) -> bool {
+        unsafe { sys::EOS_EpicAccountId_IsValid(self.0) != 0 }
+    }
+
+    pub fn raw(self) -> sys::EOS_EpicAccountId {
+        self.0
+    }
+}
+
+impl ProductUserId {
+    pub fn from_string(s: &str) -> Result<Self> {
+        let s = CString::new(s)?;
+        let raw = unsafe { sys::EOS_ProductUserId_FromString(s.as_ptr()) };
+        let id = Self(raw);
+        if id.is_valid() {
+            Ok(id)
+        } else {
+            Err(Error::Null)
+        }
+    }
+
+    pub fn to_string(self) -> Result<String> {
+        let mut buf = vec![0i8; (sys::EOS_PRODUCTUSERID_MAX_LENGTH + 1) as usize];
+        let mut len = buf.len() as i32;
+        let res = unsafe { sys::EOS_ProductUserId_ToString(self.0, buf.as_mut_ptr(), &mut len) };
+        ok(res)?;
+        let s = unsafe { CStr::from_ptr(buf.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        Ok(s)
+    }
+
+    pub fn is_valid(self) -> bool {
+        unsafe { sys::EOS_ProductUserId_IsValid(self.0) != 0 }
+    }
+
+    pub fn raw(self) -> sys::EOS_ProductUserId {
+        self.0
+    }
+}
 
 pub struct Platform(NonNull<sys::EOS_PlatformHandle>);
 
@@ -487,6 +730,125 @@ impl Auth {
         self.as_handle()
     }
 
+    pub fn get_login_status(&self, local_user: EpicAccountId) -> LoginStatus {
+        let raw = unsafe { sys::EOS_Auth_GetLoginStatus(self.as_handle(), local_user.raw()) };
+        LoginStatus::from_raw(raw)
+    }
+
+    pub fn copy_user_auth_token(&self, local_user: EpicAccountId) -> Result<AuthToken> {
+        let options = sys::EOS_Auth_CopyUserAuthTokenOptions {
+            ApiVersion: sys::EOS_AUTH_COPYUSERAUTHTOKEN_API_LATEST as i32,
+        };
+        let mut token_ptr: *mut sys::EOS_Auth_Token = std::ptr::null_mut();
+        let res = unsafe {
+            sys::EOS_Auth_CopyUserAuthToken(
+                self.as_handle(),
+                &options,
+                local_user.raw(),
+                &mut token_ptr,
+            )
+        };
+        ok(res)?;
+        unsafe { AuthToken::from_raw(token_ptr) }
+    }
+
+    pub fn copy_id_token(&self, account: EpicAccountId) -> Result<AuthIdToken> {
+        let options = sys::EOS_Auth_CopyIdTokenOptions {
+            ApiVersion: sys::EOS_AUTH_COPYIDTOKEN_API_LATEST as i32,
+            AccountId: account.raw(),
+        };
+        let mut token_ptr: *mut sys::EOS_Auth_IdToken = std::ptr::null_mut();
+        let res = unsafe { sys::EOS_Auth_CopyIdToken(self.as_handle(), &options, &mut token_ptr) };
+        ok(res)?;
+        unsafe { AuthIdToken::from_raw(token_ptr) }
+    }
+
+    pub fn query_id_token(
+        &self,
+        local_user: EpicAccountId,
+        target_account: EpicAccountId,
+        cb: impl FnOnce(Result<sys::EOS_Auth_QueryIdTokenCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Auth_QueryIdTokenCallbackInfo>) + Send>>,
+        }
+
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Auth_QueryIdTokenCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+
+        let options = sys::EOS_Auth_QueryIdTokenOptions {
+            ApiVersion: sys::EOS_AUTH_QUERYIDTOKEN_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            TargetAccountId: target_account.raw(),
+        };
+
+        unsafe {
+            sys::EOS_Auth_QueryIdToken(
+                self.as_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
+    pub fn logout(
+        &self,
+        local_user: EpicAccountId,
+        cb: impl FnOnce(Result<sys::EOS_Auth_LogoutCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Auth_LogoutCallbackInfo>) + Send>>,
+        }
+
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Auth_LogoutCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+
+        let options = sys::EOS_Auth_LogoutOptions {
+            ApiVersion: sys::EOS_AUTH_LOGOUT_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+        };
+
+        unsafe {
+            sys::EOS_Auth_Logout(
+                self.as_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
     pub fn login_epic_exchange_code(
         &self,
         exchange_code: &str,
@@ -548,6 +910,131 @@ impl Connect {
     pub fn raw_handle(&self) -> sys::EOS_HConnect {
         self.0.as_ptr() as sys::EOS_HConnect
     }
+
+    pub fn get_login_status(&self, local_user: ProductUserId) -> LoginStatus {
+        let raw = unsafe { sys::EOS_Connect_GetLoginStatus(self.raw_handle(), local_user.raw()) };
+        LoginStatus::from_raw(raw)
+    }
+
+    pub fn copy_id_token(&self, local_user: ProductUserId) -> Result<ConnectIdToken> {
+        let options = sys::EOS_Connect_CopyIdTokenOptions {
+            ApiVersion: sys::EOS_CONNECT_COPYIDTOKEN_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+        };
+        let mut token_ptr: *mut sys::EOS_Connect_IdToken = std::ptr::null_mut();
+        let res = unsafe { sys::EOS_Connect_CopyIdToken(self.raw_handle(), &options, &mut token_ptr) };
+        ok(res)?;
+        unsafe { ConnectIdToken::from_raw(token_ptr) }
+    }
+
+    pub fn login_openid_access_token(
+        &self,
+        token: &str,
+        display_name: Option<&str>,
+        cb: impl FnOnce(Result<sys::EOS_Connect_LoginCallbackInfo>) + Send + 'static,
+    ) -> Result<()> {
+        let token = CString::new(token)?;
+        let display_name_cstr = match display_name {
+            Some(v) => Some(CString::new(v)?),
+            None => None,
+        };
+
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_LoginCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_LoginCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+
+        let credentials = sys::EOS_Connect_Credentials {
+            ApiVersion: sys::EOS_CONNECT_CREDENTIALS_API_LATEST as i32,
+            Token: token.as_ptr(),
+            Type: sys::EOS_EExternalCredentialType_EOS_ECT_OPENID_ACCESS_TOKEN,
+        };
+
+        let user_login_info;
+        let user_login_info_ptr = if let Some(name) = display_name_cstr.as_ref() {
+            user_login_info = sys::EOS_Connect_UserLoginInfo {
+                ApiVersion: sys::EOS_CONNECT_USERLOGININFO_API_LATEST as i32,
+                DisplayName: name.as_ptr(),
+                NsaIdToken: std::ptr::null(),
+            };
+            &user_login_info as *const sys::EOS_Connect_UserLoginInfo
+        } else {
+            std::ptr::null()
+        };
+
+        let options = sys::EOS_Connect_LoginOptions {
+            ApiVersion: sys::EOS_CONNECT_LOGIN_API_LATEST as i32,
+            Credentials: &credentials,
+            UserLoginInfo: user_login_info_ptr,
+        };
+
+        unsafe {
+            sys::EOS_Connect_Login(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn create_user(
+        &self,
+        continuance_token: ContinuanceToken,
+        cb: impl FnOnce(Result<sys::EOS_Connect_CreateUserCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_CreateUserCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_CreateUserCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+
+        let options = sys::EOS_Connect_CreateUserOptions {
+            ApiVersion: sys::EOS_CONNECT_CREATEUSER_API_LATEST as i32,
+            ContinuanceToken: continuance_token.raw(),
+        };
+
+        unsafe {
+            sys::EOS_Connect_CreateUser(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
 }
 
 macro_rules! impl_raw_handle {
@@ -588,11 +1075,537 @@ impl Lobby {
     pub fn raw_handle(&self) -> sys::EOS_HLobby {
         self.0.as_ptr() as sys::EOS_HLobby
     }
+
+    pub fn get_invite_count(&self, local_user: ProductUserId) -> u32 {
+        let opts = sys::EOS_Lobby_GetInviteCountOptions {
+            ApiVersion: sys::EOS_LOBBY_GETINVITECOUNT_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+        };
+        unsafe { sys::EOS_Lobby_GetInviteCount(self.raw_handle(), &opts) }
+    }
+
+    pub fn get_invite_id_by_index(&self, local_user: ProductUserId, index: u32) -> Result<String> {
+        let opts = sys::EOS_Lobby_GetInviteIdByIndexOptions {
+            ApiVersion: sys::EOS_LOBBY_GETINVITEIDBYINDEX_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            Index: index,
+        };
+        let mut buf = vec![0i8; (sys::EOS_LOBBY_INVITEID_MAX_LENGTH + 1) as usize];
+        let mut len = buf.len() as i32;
+        let res =
+            unsafe { sys::EOS_Lobby_GetInviteIdByIndex(self.raw_handle(), &opts, buf.as_mut_ptr(), &mut len) };
+        ok(res)?;
+        Ok(unsafe { CStr::from_ptr(buf.as_ptr()) }
+            .to_string_lossy()
+            .into_owned())
+    }
+
+    pub fn create_lobby_search(&self, max_results: u32) -> Result<LobbySearch> {
+        let opts = sys::EOS_Lobby_CreateLobbySearchOptions {
+            ApiVersion: sys::EOS_LOBBY_CREATELOBBYSEARCH_API_LATEST as i32,
+            MaxResults: max_results,
+        };
+        let mut out: sys::EOS_HLobbySearch = std::ptr::null_mut();
+        let res = unsafe { sys::EOS_Lobby_CreateLobbySearch(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        unsafe { LobbySearch::from_raw(out) }
+    }
+
+    pub fn copy_lobby_details_handle(
+        &self,
+        lobby_id: &str,
+        local_user: ProductUserId,
+    ) -> Result<LobbyDetails> {
+        let lobby_id = CString::new(lobby_id)?;
+        let opts = sys::EOS_Lobby_CopyLobbyDetailsHandleOptions {
+            ApiVersion: sys::EOS_LOBBY_COPYLOBBYDETAILSHANDLE_API_LATEST as i32,
+            LobbyId: lobby_id.as_ptr(),
+            LocalUserId: local_user.raw(),
+        };
+        let mut out: sys::EOS_HLobbyDetails = std::ptr::null_mut();
+        let res = unsafe { sys::EOS_Lobby_CopyLobbyDetailsHandle(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        unsafe { LobbyDetails::from_raw(out) }
+    }
+
+    pub fn update_lobby_modification(
+        &self,
+        local_user: ProductUserId,
+        lobby_id: &str,
+    ) -> Result<LobbyModification> {
+        let lobby_id = CString::new(lobby_id)?;
+        let opts = sys::EOS_Lobby_UpdateLobbyModificationOptions {
+            ApiVersion: sys::EOS_LOBBY_UPDATELOBBYMODIFICATION_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            LobbyId: lobby_id.as_ptr(),
+        };
+        let mut out: sys::EOS_HLobbyModification = std::ptr::null_mut();
+        let res = unsafe { sys::EOS_Lobby_UpdateLobbyModification(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        unsafe { LobbyModification::from_raw(out) }
+    }
+
+    pub fn get_rtc_room_name(&self, lobby_id: &str, local_user: ProductUserId) -> Result<String> {
+        let lobby_id = CString::new(lobby_id)?;
+        let opts = sys::EOS_Lobby_GetRTCRoomNameOptions {
+            ApiVersion: sys::EOS_LOBBY_GETRTCROOMNAME_API_LATEST as i32,
+            LobbyId: lobby_id.as_ptr(),
+            LocalUserId: local_user.raw(),
+        };
+        // EOS headers do not expose a public max-length constant for RTC room name.
+        // Use a conservative fixed buffer; EOS returns EOS_LimitExceeded if insufficient.
+        let mut buf = vec![0i8; 256];
+        let mut len = buf.len() as u32;
+        let res =
+            unsafe { sys::EOS_Lobby_GetRTCRoomName(self.raw_handle(), &opts, buf.as_mut_ptr(), &mut len) };
+        ok(res)?;
+        Ok(unsafe { CStr::from_ptr(buf.as_ptr()) }
+            .to_string_lossy()
+            .into_owned())
+    }
+
+    pub fn create_lobby(
+        &self,
+        local_user: ProductUserId,
+        params: &CreateLobbyParams,
+        cb: impl FnOnce(Result<sys::EOS_Lobby_CreateLobbyCallbackInfo>) + Send + 'static,
+    ) -> Result<()> {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Lobby_CreateLobbyCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Lobby_CreateLobbyCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+
+        let bucket_id = CString::new(params.bucket_id.clone())?;
+        let options = sys::EOS_Lobby_CreateLobbyOptions {
+            ApiVersion: sys::EOS_LOBBY_CREATELOBBY_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            MaxLobbyMembers: params.max_lobby_members,
+            PermissionLevel: params.permission_level,
+            bPresenceEnabled: if params.presence_enabled { 1 } else { 0 },
+            bAllowInvites: if params.allow_invites { 1 } else { 0 },
+            BucketId: bucket_id.as_ptr(),
+            bDisableHostMigration: if params.disable_host_migration { 1 } else { 0 },
+            bEnableRTCRoom: if params.enable_rtc_room { 1 } else { 0 },
+            LocalRTCOptions: std::ptr::null(),
+            LobbyId: std::ptr::null(),
+            bEnableJoinById: if params.enable_join_by_id { 1 } else { 0 },
+            bRejoinAfterKickRequiresInvite: if params.rejoin_after_kick_requires_invite { 1 } else { 0 },
+            AllowedPlatformIds: std::ptr::null(),
+            AllowedPlatformIdsCount: 0,
+            bCrossplayOptOut: 0,
+            RTCRoomJoinActionType: sys::EOS_ELobbyRTCRoomJoinActionType_EOS_LRRJAT_AutomaticJoin,
+        };
+
+        unsafe {
+            sys::EOS_Lobby_CreateLobby(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn join_lobby(
+        &self,
+        lobby_details: &LobbyDetails,
+        local_user: ProductUserId,
+        presence_enabled: bool,
+        cb: impl FnOnce(Result<sys::EOS_Lobby_JoinLobbyCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Lobby_JoinLobbyCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Lobby_JoinLobbyCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let options = sys::EOS_Lobby_JoinLobbyOptions {
+            ApiVersion: sys::EOS_LOBBY_JOINLOBBY_API_LATEST as i32,
+            LobbyDetailsHandle: lobby_details.raw_handle(),
+            LocalUserId: local_user.raw(),
+            bPresenceEnabled: if presence_enabled { 1 } else { 0 },
+            LocalRTCOptions: std::ptr::null(),
+            bCrossplayOptOut: 0,
+            RTCRoomJoinActionType: sys::EOS_ELobbyRTCRoomJoinActionType_EOS_LRRJAT_AutomaticJoin,
+        };
+        unsafe {
+            sys::EOS_Lobby_JoinLobby(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
+    pub fn leave_lobby(
+        &self,
+        local_user: ProductUserId,
+        lobby_id: &str,
+        cb: impl FnOnce(Result<sys::EOS_Lobby_LeaveLobbyCallbackInfo>) + Send + 'static,
+    ) -> Result<()> {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Lobby_LeaveLobbyCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Lobby_LeaveLobbyCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let lobby_id = CString::new(lobby_id)?;
+        let options = sys::EOS_Lobby_LeaveLobbyOptions {
+            ApiVersion: sys::EOS_LOBBY_LEAVELOBBY_API_LATEST as i32,
+            LobbyId: lobby_id.as_ptr(),
+            LocalUserId: local_user.raw(),
+        };
+        unsafe {
+            sys::EOS_Lobby_LeaveLobby(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn destroy_lobby(
+        &self,
+        local_user: ProductUserId,
+        lobby_id: &str,
+        cb: impl FnOnce(Result<sys::EOS_Lobby_DestroyLobbyCallbackInfo>) + Send + 'static,
+    ) -> Result<()> {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Lobby_DestroyLobbyCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Lobby_DestroyLobbyCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let lobby_id = CString::new(lobby_id)?;
+        let options = sys::EOS_Lobby_DestroyLobbyOptions {
+            ApiVersion: sys::EOS_LOBBY_DESTROYLOBBY_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            LobbyId: lobby_id.as_ptr(),
+        };
+        unsafe {
+            sys::EOS_Lobby_DestroyLobby(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+        Ok(())
+    }
 }
 
 impl P2P {
     pub fn raw_handle(&self) -> sys::EOS_HP2P {
         self.0.as_ptr() as sys::EOS_HP2P
+    }
+
+    pub fn query_nat_type(
+        &self,
+        cb: impl FnOnce(Result<NatType>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<NatType>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_P2P_OnQueryNATTypeCompleteInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(NatType::from_raw((*data).NATType))
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let opts = sys::EOS_P2P_QueryNATTypeOptions {
+            ApiVersion: sys::EOS_P2P_QUERYNATTYPE_API_LATEST as i32,
+        };
+        unsafe {
+            sys::EOS_P2P_QueryNATType(self.raw_handle(), &opts, cb_box.ptr as *mut _, Some(trampoline));
+        }
+    }
+
+    pub fn get_nat_type(&self) -> Result<NatType> {
+        let opts = sys::EOS_P2P_GetNATTypeOptions {
+            ApiVersion: sys::EOS_P2P_GETNATTYPE_API_LATEST as i32,
+        };
+        let mut out = sys::EOS_ENATType_EOS_NAT_Unknown;
+        let res = unsafe { sys::EOS_P2P_GetNATType(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        Ok(NatType::from_raw(out))
+    }
+
+    pub fn set_relay_control(&self, relay: RelayControl) -> Result<()> {
+        let opts = sys::EOS_P2P_SetRelayControlOptions {
+            ApiVersion: sys::EOS_P2P_SETRELAYCONTROL_API_LATEST as i32,
+            RelayControl: relay.to_raw(),
+        };
+        let res = unsafe { sys::EOS_P2P_SetRelayControl(self.raw_handle(), &opts) };
+        ok(res)
+    }
+
+    pub fn get_relay_control(&self) -> Result<RelayControl> {
+        let opts = sys::EOS_P2P_GetRelayControlOptions {
+            ApiVersion: sys::EOS_P2P_GETRELAYCONTROL_API_LATEST as i32,
+        };
+        let mut out = sys::EOS_ERelayControl_EOS_RC_AllowRelays;
+        let res = unsafe { sys::EOS_P2P_GetRelayControl(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        Ok(RelayControl::from_raw(out))
+    }
+
+    pub fn set_port_range(&self, port: u16, max_additional_ports: u16) -> Result<()> {
+        let opts = sys::EOS_P2P_SetPortRangeOptions {
+            ApiVersion: sys::EOS_P2P_SETPORTRANGE_API_LATEST as i32,
+            Port: port,
+            MaxAdditionalPortsToTry: max_additional_ports,
+        };
+        let res = unsafe { sys::EOS_P2P_SetPortRange(self.raw_handle(), &opts) };
+        ok(res)
+    }
+
+    pub fn get_port_range(&self) -> Result<(u16, u16)> {
+        let opts = sys::EOS_P2P_GetPortRangeOptions {
+            ApiVersion: sys::EOS_P2P_GETPORTRANGE_API_LATEST as i32,
+        };
+        let mut port = 0u16;
+        let mut extra = 0u16;
+        let res = unsafe { sys::EOS_P2P_GetPortRange(self.raw_handle(), &opts, &mut port, &mut extra) };
+        ok(res)?;
+        Ok((port, extra))
+    }
+
+    pub fn set_packet_queue_size(&self, incoming_max: u64, outgoing_max: u64) -> Result<()> {
+        let opts = sys::EOS_P2P_SetPacketQueueSizeOptions {
+            ApiVersion: sys::EOS_P2P_SETPACKETQUEUESIZE_API_LATEST as i32,
+            IncomingPacketQueueMaxSizeBytes: incoming_max,
+            OutgoingPacketQueueMaxSizeBytes: outgoing_max,
+        };
+        let res = unsafe { sys::EOS_P2P_SetPacketQueueSize(self.raw_handle(), &opts) };
+        ok(res)
+    }
+
+    pub fn get_packet_queue_info(&self) -> Result<PacketQueueInfo> {
+        let opts = sys::EOS_P2P_GetPacketQueueInfoOptions {
+            ApiVersion: sys::EOS_P2P_GETPACKETQUEUEINFO_API_LATEST as i32,
+        };
+        let mut out = sys::EOS_P2P_PacketQueueInfo::default();
+        let res = unsafe { sys::EOS_P2P_GetPacketQueueInfo(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        Ok(PacketQueueInfo {
+            incoming_max_size_bytes: out.IncomingPacketQueueMaxSizeBytes,
+            incoming_current_size_bytes: out.IncomingPacketQueueCurrentSizeBytes,
+            incoming_current_packet_count: out.IncomingPacketQueueCurrentPacketCount,
+            outgoing_max_size_bytes: out.OutgoingPacketQueueMaxSizeBytes,
+            outgoing_current_size_bytes: out.OutgoingPacketQueueCurrentSizeBytes,
+            outgoing_current_packet_count: out.OutgoingPacketQueueCurrentPacketCount,
+        })
+    }
+
+    pub fn send_packet(
+        &self,
+        local_user: ProductUserId,
+        remote_user: ProductUserId,
+        socket_name: &str,
+        channel: u8,
+        data: &[u8],
+        reliability: PacketReliability,
+        allow_delayed_delivery: bool,
+        disable_auto_accept_connection: bool,
+    ) -> Result<()> {
+        let socket = make_socket_id(socket_name)?;
+        let opts = sys::EOS_P2P_SendPacketOptions {
+            ApiVersion: sys::EOS_P2P_SENDPACKET_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            RemoteUserId: remote_user.raw(),
+            SocketId: &socket,
+            Channel: channel,
+            DataLengthBytes: data.len() as u32,
+            Data: data.as_ptr() as *const _,
+            bAllowDelayedDelivery: if allow_delayed_delivery { 1 } else { 0 },
+            Reliability: reliability.to_raw(),
+            bDisableAutoAcceptConnection: if disable_auto_accept_connection { 1 } else { 0 },
+        };
+        let res = unsafe { sys::EOS_P2P_SendPacket(self.raw_handle(), &opts) };
+        ok(res)
+    }
+
+    pub fn get_next_received_packet_size(
+        &self,
+        local_user: ProductUserId,
+        requested_channel: Option<u8>,
+    ) -> Result<u32> {
+        let requested = requested_channel.unwrap_or_default();
+        let requested_ptr = if requested_channel.is_some() {
+            &requested as *const u8
+        } else {
+            std::ptr::null()
+        };
+        let opts = sys::EOS_P2P_GetNextReceivedPacketSizeOptions {
+            ApiVersion: sys::EOS_P2P_GETNEXTRECEIVEDPACKETSIZE_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            RequestedChannel: requested_ptr,
+        };
+        let mut size = 0u32;
+        let res = unsafe { sys::EOS_P2P_GetNextReceivedPacketSize(self.raw_handle(), &opts, &mut size) };
+        ok(res)?;
+        Ok(size)
+    }
+
+    pub fn receive_packet(
+        &self,
+        local_user: ProductUserId,
+        max_data_size_bytes: u32,
+        requested_channel: Option<u8>,
+    ) -> Result<ReceivedPacket> {
+        let requested = requested_channel.unwrap_or_default();
+        let requested_ptr = if requested_channel.is_some() {
+            &requested as *const u8
+        } else {
+            std::ptr::null()
+        };
+        let opts = sys::EOS_P2P_ReceivePacketOptions {
+            ApiVersion: sys::EOS_P2P_RECEIVEPACKET_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            MaxDataSizeBytes: max_data_size_bytes,
+            RequestedChannel: requested_ptr,
+        };
+        let mut peer = std::ptr::null_mut();
+        let mut socket = sys::EOS_P2P_SocketId::default();
+        let mut channel = 0u8;
+        let mut data = vec![0u8; max_data_size_bytes as usize];
+        let mut bytes_written = 0u32;
+        let res = unsafe {
+            sys::EOS_P2P_ReceivePacket(
+                self.raw_handle(),
+                &opts,
+                &mut peer,
+                &mut socket,
+                &mut channel,
+                data.as_mut_ptr() as *mut _,
+                &mut bytes_written,
+            )
+        };
+        ok(res)?;
+        data.truncate(bytes_written as usize);
+        Ok(ReceivedPacket {
+            peer_id: ProductUserId(peer),
+            socket_name: socket_name_from_raw(&socket),
+            channel,
+            data,
+        })
+    }
+
+    pub fn accept_connection(
+        &self,
+        local_user: ProductUserId,
+        remote_user: ProductUserId,
+        socket_name: &str,
+    ) -> Result<()> {
+        let socket = make_socket_id(socket_name)?;
+        let opts = sys::EOS_P2P_AcceptConnectionOptions {
+            ApiVersion: sys::EOS_P2P_ACCEPTCONNECTION_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            RemoteUserId: remote_user.raw(),
+            SocketId: &socket,
+        };
+        ok(unsafe { sys::EOS_P2P_AcceptConnection(self.raw_handle(), &opts) })
+    }
+
+    pub fn close_connection(
+        &self,
+        local_user: ProductUserId,
+        remote_user: ProductUserId,
+        socket_name: Option<&str>,
+    ) -> Result<()> {
+        let socket = match socket_name {
+            Some(n) => Some(make_socket_id(n)?),
+            None => None,
+        };
+        let opts = sys::EOS_P2P_CloseConnectionOptions {
+            ApiVersion: sys::EOS_P2P_CLOSECONNECTION_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            RemoteUserId: remote_user.raw(),
+            SocketId: socket
+                .as_ref()
+                .map(|s| s as *const _)
+                .unwrap_or(std::ptr::null()),
+        };
+        ok(unsafe { sys::EOS_P2P_CloseConnection(self.raw_handle(), &opts) })
+    }
+
+    pub fn close_connections(&self, local_user: ProductUserId, socket_name: &str) -> Result<()> {
+        let socket = make_socket_id(socket_name)?;
+        let opts = sys::EOS_P2P_CloseConnectionsOptions {
+            ApiVersion: sys::EOS_P2P_CLOSECONNECTIONS_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            SocketId: &socket,
+        };
+        ok(unsafe { sys::EOS_P2P_CloseConnections(self.raw_handle(), &opts) })
     }
 }
 
@@ -846,5 +1859,105 @@ owned_ptr_release!(
     sys::EOS_RTCAdmin_UserToken,
     sys::EOS_RTCAdmin_UserToken_Release
 );
+
+impl LobbySearch {
+    pub fn find(
+        &self,
+        local_user: ProductUserId,
+        cb: impl FnOnce(Result<sys::EOS_LobbySearch_FindCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_LobbySearch_FindCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_LobbySearch_FindCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let opts = sys::EOS_LobbySearch_FindOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_FIND_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+        };
+        unsafe {
+            sys::EOS_LobbySearch_Find(self.raw_handle(), &opts, cb_box.ptr as *mut _, Some(trampoline));
+        }
+    }
+
+    pub fn get_search_result_count(&self) -> u32 {
+        let opts = sys::EOS_LobbySearch_GetSearchResultCountOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_GETSEARCHRESULTCOUNT_API_LATEST as i32,
+        };
+        unsafe { sys::EOS_LobbySearch_GetSearchResultCount(self.raw_handle(), &opts) }
+    }
+
+    pub fn copy_search_result_by_index(&self, lobby_index: u32) -> Result<LobbyDetails> {
+        let opts = sys::EOS_LobbySearch_CopySearchResultByIndexOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_COPYSEARCHRESULTBYINDEX_API_LATEST as i32,
+            LobbyIndex: lobby_index,
+        };
+        let mut out: sys::EOS_HLobbyDetails = std::ptr::null_mut();
+        let res = unsafe { sys::EOS_LobbySearch_CopySearchResultByIndex(self.raw_handle(), &opts, &mut out) };
+        ok(res)?;
+        unsafe { LobbyDetails::from_raw(out) }
+    }
+}
+
+impl AuthToken {
+    pub fn account_id(&self) -> EpicAccountId {
+        // SAFETY: pointer is owned by this RAII wrapper and valid for its lifetime.
+        let token = unsafe { &*self.as_ptr() };
+        EpicAccountId(token.AccountId)
+    }
+
+    pub fn access_token(&self) -> Option<&str> {
+        let token = unsafe { &*self.as_ptr() };
+        if token.AccessToken.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(token.AccessToken) }.to_str().ok()?)
+    }
+}
+
+impl AuthIdToken {
+    pub fn account_id(&self) -> EpicAccountId {
+        let token = unsafe { &*self.as_ptr() };
+        EpicAccountId(token.AccountId)
+    }
+
+    pub fn json_web_token(&self) -> Option<&str> {
+        let token = unsafe { &*self.as_ptr() };
+        if token.JsonWebToken.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(token.JsonWebToken) }.to_str().ok()?)
+    }
+}
+
+impl ConnectIdToken {
+    pub fn product_user_id(&self) -> ProductUserId {
+        let token = unsafe { &*self.as_ptr() };
+        ProductUserId(token.ProductUserId)
+    }
+
+    pub fn json_web_token(&self) -> Option<&str> {
+        let token = unsafe { &*self.as_ptr() };
+        if token.JsonWebToken.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(token.JsonWebToken) }.to_str().ok()?)
+    }
+}
 
 
