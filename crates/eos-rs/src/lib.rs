@@ -217,6 +217,14 @@ pub struct PacketQueueInfo {
 }
 
 #[derive(Clone, Debug)]
+pub enum LobbySearchValue {
+    Bool(bool),
+    Int64(i64),
+    Double(f64),
+    String(String),
+}
+
+#[derive(Clone, Debug)]
 pub struct ReceivedPacket {
     pub peer_id: ProductUserId,
     pub socket_name: String,
@@ -1035,6 +1043,244 @@ impl Connect {
             );
         }
     }
+
+    pub fn logout(
+        &self,
+        local_user: ProductUserId,
+        cb: impl FnOnce(Result<sys::EOS_Connect_LogoutCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_LogoutCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_LogoutCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let options = sys::EOS_Connect_LogoutOptions {
+            ApiVersion: sys::EOS_CONNECT_LOGOUT_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+        };
+        unsafe {
+            sys::EOS_Connect_Logout(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
+    pub fn link_account(
+        &self,
+        local_user: ProductUserId,
+        continuance_token: ContinuanceToken,
+        cb: impl FnOnce(Result<sys::EOS_Connect_LinkAccountCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_LinkAccountCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_LinkAccountCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let options = sys::EOS_Connect_LinkAccountOptions {
+            ApiVersion: sys::EOS_CONNECT_LINKACCOUNT_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            ContinuanceToken: continuance_token.raw(),
+        };
+        unsafe {
+            sys::EOS_Connect_LinkAccount(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
+    pub fn unlink_account(
+        &self,
+        local_user: ProductUserId,
+        cb: impl FnOnce(Result<sys::EOS_Connect_UnlinkAccountCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_UnlinkAccountCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_UnlinkAccountCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let options = sys::EOS_Connect_UnlinkAccountOptions {
+            ApiVersion: sys::EOS_CONNECT_UNLINKACCOUNT_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+        };
+        unsafe {
+            sys::EOS_Connect_UnlinkAccount(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
+    pub fn create_device_id(
+        &self,
+        device_model: &str,
+        cb: impl FnOnce(Result<sys::EOS_Connect_CreateDeviceIdCallbackInfo>) + Send + 'static,
+    ) -> Result<()> {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_CreateDeviceIdCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_CreateDeviceIdCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let model = CString::new(device_model)?;
+        let options = sys::EOS_Connect_CreateDeviceIdOptions {
+            ApiVersion: sys::EOS_CONNECT_CREATEDEVICEID_API_LATEST as i32,
+            DeviceModel: model.as_ptr(),
+        };
+        unsafe {
+            sys::EOS_Connect_CreateDeviceId(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn delete_device_id(
+        &self,
+        cb: impl FnOnce(Result<sys::EOS_Connect_DeleteDeviceIdCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<Box<dyn FnOnce(Result<sys::EOS_Connect_DeleteDeviceIdCallbackInfo>) + Send>>,
+        }
+        unsafe extern "C" fn trampoline(data: *const sys::EOS_Connect_DeleteDeviceIdCallbackInfo) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let options = sys::EOS_Connect_DeleteDeviceIdOptions {
+            ApiVersion: sys::EOS_CONNECT_DELETEDEVICEID_API_LATEST as i32,
+        };
+        unsafe {
+            sys::EOS_Connect_DeleteDeviceId(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
+
+    pub fn transfer_device_id_account(
+        &self,
+        primary_local_user: ProductUserId,
+        local_device_user: ProductUserId,
+        product_user_to_preserve: ProductUserId,
+        cb: impl FnOnce(Result<sys::EOS_Connect_TransferDeviceIdAccountCallbackInfo>) + Send + 'static,
+    ) {
+        #[repr(C)]
+        struct Cb {
+            f: Option<
+                Box<dyn FnOnce(Result<sys::EOS_Connect_TransferDeviceIdAccountCallbackInfo>) + Send>,
+            >,
+        }
+        unsafe extern "C" fn trampoline(
+            data: *const sys::EOS_Connect_TransferDeviceIdAccountCallbackInfo,
+        ) {
+            let client_data = (*data).ClientData as *mut Cb;
+            let mut boxed = Box::from_raw(client_data);
+            let res = if (*data).ResultCode == sys::EOS_EResult_EOS_Success {
+                Ok(*data)
+            } else {
+                Err(Error::Eos((*data).ResultCode))
+            };
+            if let Some(f) = boxed.f.take() {
+                f(res);
+            }
+        }
+        let cb_box = CallbackOnce::new(Cb {
+            f: Some(Box::new(cb)),
+        });
+        let options = sys::EOS_Connect_TransferDeviceIdAccountOptions {
+            ApiVersion: sys::EOS_CONNECT_TRANSFERDEVICEIDACCOUNT_API_LATEST as i32,
+            PrimaryLocalUserId: primary_local_user.raw(),
+            LocalDeviceUserId: local_device_user.raw(),
+            ProductUserIdToPreserve: product_user_to_preserve.raw(),
+        };
+        unsafe {
+            sys::EOS_Connect_TransferDeviceIdAccount(
+                self.raw_handle(),
+                &options,
+                cb_box.ptr as *mut _,
+                Some(trampoline),
+            );
+        }
+    }
 }
 
 macro_rules! impl_raw_handle {
@@ -1607,6 +1853,22 @@ impl P2P {
         };
         ok(unsafe { sys::EOS_P2P_CloseConnections(self.raw_handle(), &opts) })
     }
+
+    pub fn clear_packet_queue(
+        &self,
+        local_user: ProductUserId,
+        remote_user: ProductUserId,
+        socket_name: &str,
+    ) -> Result<()> {
+        let socket = make_socket_id(socket_name)?;
+        let opts = sys::EOS_P2P_ClearPacketQueueOptions {
+            ApiVersion: sys::EOS_P2P_CLEARPACKETQUEUE_API_LATEST as i32,
+            LocalUserId: local_user.raw(),
+            RemoteUserId: remote_user.raw(),
+            SocketId: &socket,
+        };
+        ok(unsafe { sys::EOS_P2P_ClearPacketQueue(self.raw_handle(), &opts) })
+    }
 }
 
 // ---- Owned EOS objects with explicit Release() ----
@@ -1861,6 +2123,90 @@ owned_ptr_release!(
 );
 
 impl LobbySearch {
+    pub fn set_lobby_id(&self, lobby_id: &str) -> Result<()> {
+        let lobby_id = CString::new(lobby_id)?;
+        let opts = sys::EOS_LobbySearch_SetLobbyIdOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_SETLOBBYID_API_LATEST as i32,
+            LobbyId: lobby_id.as_ptr(),
+        };
+        ok(unsafe { sys::EOS_LobbySearch_SetLobbyId(self.raw_handle(), &opts) })
+    }
+
+    pub fn set_target_user_id(&self, target_user_id: ProductUserId) -> Result<()> {
+        let opts = sys::EOS_LobbySearch_SetTargetUserIdOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_SETTARGETUSERID_API_LATEST as i32,
+            TargetUserId: target_user_id.raw(),
+        };
+        ok(unsafe { sys::EOS_LobbySearch_SetTargetUserId(self.raw_handle(), &opts) })
+    }
+
+    pub fn set_max_results(&self, max_results: u32) -> Result<()> {
+        let opts = sys::EOS_LobbySearch_SetMaxResultsOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_SETMAXRESULTS_API_LATEST as i32,
+            MaxResults: max_results,
+        };
+        ok(unsafe { sys::EOS_LobbySearch_SetMaxResults(self.raw_handle(), &opts) })
+    }
+
+    pub fn set_parameter(
+        &self,
+        key: &str,
+        value: &LobbySearchValue,
+        comparison_op: sys::EOS_EComparisonOp,
+    ) -> Result<()> {
+        let key = CString::new(key)?;
+        let string_storage;
+        let (value_union, value_type) = match value {
+            LobbySearchValue::Bool(v) => (
+                sys::_tagEOS_Lobby_AttributeData__bindgen_ty_1 {
+                    AsBool: if *v { 1 } else { 0 },
+                },
+                sys::EOS_EAttributeType_EOS_AT_BOOLEAN,
+            ),
+            LobbySearchValue::Int64(v) => (
+                sys::_tagEOS_Lobby_AttributeData__bindgen_ty_1 { AsInt64: *v },
+                sys::EOS_EAttributeType_EOS_AT_INT64,
+            ),
+            LobbySearchValue::Double(v) => (
+                sys::_tagEOS_Lobby_AttributeData__bindgen_ty_1 { AsDouble: *v },
+                sys::EOS_EAttributeType_EOS_AT_DOUBLE,
+            ),
+            LobbySearchValue::String(v) => {
+                string_storage = CString::new(v.as_str())?;
+                (
+                    sys::_tagEOS_Lobby_AttributeData__bindgen_ty_1 {
+                        AsUtf8: string_storage.as_ptr(),
+                    },
+                    sys::EOS_EAttributeType_EOS_AT_STRING,
+                )
+            }
+        };
+
+        let attr = sys::EOS_Lobby_AttributeData {
+            ApiVersion: sys::EOS_LOBBY_ATTRIBUTEDATA_API_LATEST as i32,
+            Key: key.as_ptr(),
+            Value: value_union,
+            ValueType: value_type,
+        };
+
+        let opts = sys::EOS_LobbySearch_SetParameterOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_SETPARAMETER_API_LATEST as i32,
+            Parameter: &attr,
+            ComparisonOp: comparison_op,
+        };
+        ok(unsafe { sys::EOS_LobbySearch_SetParameter(self.raw_handle(), &opts) })
+    }
+
+    pub fn remove_parameter(&self, key: &str, comparison_op: sys::EOS_EComparisonOp) -> Result<()> {
+        let key = CString::new(key)?;
+        let opts = sys::EOS_LobbySearch_RemoveParameterOptions {
+            ApiVersion: sys::EOS_LOBBYSEARCH_REMOVEPARAMETER_API_LATEST as i32,
+            Key: key.as_ptr(),
+            ComparisonOp: comparison_op,
+        };
+        ok(unsafe { sys::EOS_LobbySearch_RemoveParameter(self.raw_handle(), &opts) })
+    }
+
     pub fn find(
         &self,
         local_user: ProductUserId,
